@@ -32,11 +32,13 @@ public class RunService {
   private final FactorRepo factorRepo;
   private final FactorVersionRepo versionRepo;
   private final PlantRepo plantRepo;
+  private final EvidenceService evidenceService;
 
   public RunService(CalcRunRepo runRepo, RunFactorBindingRepo bindingRepo,
                     EmissionResultRepo resultRepo, EmissionLineageRepo lineageRepo,
                     SourceRowRepo rowRepo, SourceBatchRepo batchRepo,
-                    FactorRepo factorRepo, FactorVersionRepo versionRepo, PlantRepo plantRepo) {
+                    FactorRepo factorRepo, FactorVersionRepo versionRepo, PlantRepo plantRepo,
+                    EvidenceService evidenceService) {
     this.runRepo = runRepo;
     this.bindingRepo = bindingRepo;
     this.resultRepo = resultRepo;
@@ -46,6 +48,7 @@ public class RunService {
     this.factorRepo = factorRepo;
     this.versionRepo = versionRepo;
     this.plantRepo = plantRepo;
+    this.evidenceService = evidenceService;
   }
 
   public static void validatePeriod(String period) {
@@ -112,9 +115,14 @@ public class RunService {
       b.setValidTo(v.getValidTo());
       bindingRepo.save(b);
     }
+    // 同步冻结该期间的数量裁定快照（数量+理由+证据版本），运行中重裁不影响本运行
+    evidenceService.snapshotForRun(run.getId(), run.getPeriod());
   }
 
   private record GroupKey(Long plantId, Long productLineId, String energyType) {}
+
+  /** 核算时解析后的来源行：qty 为裁定采用量（待证时为空），adjudicationId 指向裁定快照。 */
+  private record ResolvedRow(SourceRow row, BigDecimal qty, Long adjudicationId) {}
 
   /** 执行核算：仅使用启动时绑定的因子清单；结果与来源行建立血缘。 */
   @Transactional
@@ -135,14 +143,35 @@ public class RunService {
 
       for (Map.Entry<GroupKey, List<SourceRow>> e : groups.entrySet()) {
         GroupKey key = e.getKey();
-        BigDecimal qty = e.getValue().stream()
-            .map(SourceRow::getQuantity).reduce(BigDecimal.ZERO, BigDecimal::add);
         Plant plant = plants.get(key.plantId());
         if (plant == null) throw BizException.badRequest("来源行引用了不存在的工厂: " + key.plantId());
+        boolean procurement = "PROCUREMENT".equals(
+            EnergyTypes.metaOf(key.energyType()).category());
+
+        // 采购行：活动量只能来自数量裁定快照；未冻结到生效裁定 → 待证（不用金额/平均数填）
+        List<ResolvedRow> resolved = new ArrayList<>();
+        boolean pendingEvidence = false;
+        if (procurement) {
+          for (SourceRow r : e.getValue()) {
+            Optional<RunAdjudicationBinding> b =
+                evidenceService.bindingFor(runId, r.getPlantId(), r.getVoucherNo());
+            if (b.isEmpty()) {
+              pendingEvidence = true;
+              resolved.add(new ResolvedRow(r, null, null));
+            } else {
+              resolved.add(new ResolvedRow(r, b.get().getAdoptedQty(), b.get().getAdjudicationId()));
+            }
+          }
+        } else {
+          for (SourceRow r : e.getValue()) resolved.add(new ResolvedRow(r, r.getQuantity(), null));
+        }
+
+        BigDecimal qty = pendingEvidence ? null : resolved.stream()
+            .map(x -> x.qty).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         RunFactorBinding binding = bindings.stream()
-            .filter(b -> b.getEnergyType().equals(key.energyType())
-                && b.getRegion().equals(plant.getRegion()))
+            .filter(bb -> bb.getEnergyType().equals(key.energyType())
+                && bb.getRegion().equals(plant.getRegion()))
             .findFirst().orElse(null);
 
         EmissionResult res = new EmissionResult();
@@ -153,7 +182,10 @@ public class RunService {
         res.setEnergyType(key.energyType());
         res.setActivityQty(qty);
         res.setUnit(EnergyTypes.unitOf(key.energyType()));
-        if (binding != null) {
+        if (pendingEvidence) {
+          // 采购数量未裁定/待补：指标待证，活动量与排放量留空，披露环节阻断
+          res.setStatus(ResultStatus.PENDING_EVIDENCE);
+        } else if (binding != null) {
           res.setFactorVersionId(binding.getFactorVersionId());
           res.setFactorValue(binding.getValue());
           res.setEmissionTco2e(qty.multiply(binding.getValue())
@@ -164,8 +196,8 @@ public class RunService {
           res.setStatus(ResultStatus.PENDING_FACTOR);
         }
         resultRepo.save(res);
-        for (SourceRow row : e.getValue()) {
-          lineageRepo.save(new EmissionLineage(res.getId(), row.getId(), row.getQuantity()));
+        for (ResolvedRow rr : resolved) {
+          lineageRepo.save(new EmissionLineage(res.getId(), rr.row.getId(), rr.qty, rr.adjudicationId));
         }
       }
       run.setStatus(RunStatus.COMPLETED);
@@ -188,6 +220,11 @@ public class RunService {
   }
 
   public List<RunFactorBinding> bindingsOf(Long runId) { return bindingRepo.findByRunId(runId); }
+
+  /** 运行冻结的数量裁定快照（采用量、理由、证据版本）。 */
+  public List<RunAdjudicationBinding> adjudicationBindingsOf(Long runId) {
+    return evidenceService.bindingsOfRun(runId);
+  }
 
   public List<EmissionResult> resultsOf(Long runId) { return resultRepo.findByRunIdOrderById(runId); }
 
@@ -239,6 +276,11 @@ public class RunService {
       s.put("qtyUsed", edge.getQtyUsed());
       s.put("unit", row.getUnit());
       s.put("rowStatus", row.getStatus());
+      s.put("adjudicationId", edge.getAdjudicationId());
+      // 采购行：下钻数量裁定（采用量、理由、证据版本、排除候选）
+      if (edge.getAdjudicationId() != null) {
+        s.put("adjudication", evidenceService.adjudicationBinding(edge.getAdjudicationId()));
+      }
       sources.add(s);
     }
     out.put("sources", sources);

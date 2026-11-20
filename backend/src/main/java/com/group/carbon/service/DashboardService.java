@@ -19,11 +19,13 @@ public class DashboardService {
   private final ImpactAssessmentRepo impactRepo;
   private final RestatementRepo restatementRepo;
   private final PlantRepo plantRepo;
+  private final QuantityAdjudicationRepo adjudicationRepo;
 
   public DashboardService(ReportRepo reportRepo, ReportVersionRepo versionRepo,
                           ReportItemRepo itemRepo, CalcRunRepo runRepo,
                           EmissionResultRepo resultRepo, ImpactAssessmentRepo impactRepo,
-                          RestatementRepo restatementRepo, PlantRepo plantRepo) {
+                          RestatementRepo restatementRepo, PlantRepo plantRepo,
+                          QuantityAdjudicationRepo adjudicationRepo) {
     this.reportRepo = reportRepo;
     this.versionRepo = versionRepo;
     this.itemRepo = itemRepo;
@@ -32,6 +34,7 @@ public class DashboardService {
     this.impactRepo = impactRepo;
     this.restatementRepo = restatementRepo;
     this.plantRepo = plantRepo;
+    this.adjudicationRepo = adjudicationRepo;
   }
 
   public Map<String, Object> summary() {
@@ -82,11 +85,18 @@ public class DashboardService {
     long pendingResults = latestOfficial == null ? 0
         : resultRepo.findByRunIdOrderById(latestOfficial.getId()).stream()
             .filter(r -> r.getStatus() == ResultStatus.PENDING_FACTOR).count();
+    long pendingEvidenceResults = latestOfficial == null ? 0
+        : resultRepo.findByRunIdOrderById(latestOfficial.getId()).stream()
+            .filter(r -> r.getStatus() == ResultStatus.PENDING_EVIDENCE).count();
+    long pendingAdjudications = adjudicationRepo.findAll().stream()
+        .filter(a -> a.getStatus() == AdjudicationStatus.PENDING).count();
 
     Map<String, Object> counts = new LinkedHashMap<>();
     counts.put("openImpacts", openImpacts);
     counts.put("reconcileFailedReports", reconcileFailed);
     counts.put("pendingFactorResults", pendingResults);
+    counts.put("pendingEvidenceResults", pendingEvidenceResults);
+    counts.put("pendingAdjudications", pendingAdjudications);
     counts.put("totalReports", reportRepo.count());
     counts.put("totalRuns", runs.size());
     out.put("counts", counts);

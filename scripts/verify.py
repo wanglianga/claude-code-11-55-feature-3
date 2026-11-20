@@ -86,6 +86,50 @@ def report_of(token, period):
     return None
 
 
+def evidence_doc(token, doc_no, doc_type, plant_id, period, voucher_no,
+                 order_no, delivery_no, qty, unit='t', tier=1, signed=True,
+                 material='PURCH_STEEL', density=None, pack_spec=None,
+                 extract_status='OK'):
+    """登记一张采购凭证（含文件哈希与抽取字段）。"""
+    import hashlib
+    fields = [
+        {'name': 'QUANTITY', 'text': f'{qty}{unit}', 'numValue': qty,
+         'unit': unit, 'extractStatus': extract_status},
+        {'name': 'UNIT', 'text': unit, 'unit': unit, 'extractStatus': 'OK'}]
+    if density is not None:
+        fields.append({'name': 'DENSITY', 'numValue': density, 'unit': 't/m3',
+                       'extractStatus': 'OK'})
+    if pack_spec is not None:
+        fields.append({'name': 'PACK_SPEC', 'numValue': pack_spec, 'unit': 'kg/PCS',
+                       'extractStatus': 'OK'})
+    body = {
+        'docNo': doc_no, 'docType': doc_type, 'supplier': '验收回放供应商',
+        'plantId': plant_id, 'period': period, 'voucherNo': voucher_no,
+        'orderNo': order_no, 'deliveryNo': delivery_no, 'materialCode': material,
+        'signed': signed, 'authorityTier': tier, 'docDate': period + '-10',
+        'fileName': doc_no + '.pdf',
+        'fileHash': hashlib.sha256((doc_no + '|v1').encode()).hexdigest(),
+        'fileSize': 10240, 'fields': fields}
+    s, body = req('POST', '/evidence/documents', body, token=token)
+    assert s == 200, f'凭证登记失败 {doc_no}: {s} {body}'
+    return s, body
+
+
+def seed_three_docs(recv_token, adj_token, plant_id, period, voucher, order_no, delivery_no,
+                    po_qty, inv_qty, weigh_qty, unit='t'):
+    """登记 订单+发票+过磅单 三证（分析员接收）并触发裁定（审核员权限）。"""
+    evidence_doc(recv_token, 'PO-' + voucher, 'PURCHASE_ORDER', plant_id, period, voucher,
+                 order_no, None, po_qty, unit, tier=3, signed=False)
+    evidence_doc(recv_token, 'INV-' + voucher, 'INVOICE', plant_id, period, voucher,
+                 order_no, delivery_no, inv_qty, unit, tier=1)
+    evidence_doc(recv_token, 'WN-' + voucher, 'WEIGHNOTE', plant_id, period, voucher,
+                 order_no, delivery_no, weigh_qty, unit, tier=1)
+    s, body = req('POST',
+                  f'/evidence/adjudications/re-run?period={period}&plantId={plant_id}&voucherNo={voucher}',
+                  token=adj_token)
+    return body
+
+
 def main():
     print(f'== 目标: {BASE}')
     admin = login('admin', 'admin123')
@@ -283,6 +327,12 @@ def main():
         token=analyst)
     s, b = req('POST', f"/batches/{rev_e['id']}/verify", token=auditor)
     check('S4 公共用电分摊修订核验通过', s == 200 and b['status'] == 'VERIFIED', str(b))
+    # 修复2.5：S3 新增采购凭证 V-1003 补录三证并完成数量裁定，解除待证阻断
+    adj_v1003 = seed_three_docs(analyst, auditor, 2, '2025-06', 'V-1003',
+                                'PO-2025-06-03', 'DN-103', 80, 80, 80)
+    check('S4 V-1003 三证唯一解自动裁定 80t',
+          adj_v1003['status'] == 'DECIDED' and float(adj_v1003['adoptedQty']) == 80.0,
+          str(adj_v1003))
     # 修复3：重新运行并冻结新版本
     s, run3 = req('POST', '/runs', {'period': '2025-06'}, token=analyst)
     run3 = wait_run(admin, run3['id'])

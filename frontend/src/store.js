@@ -61,7 +61,8 @@ export const STATUS_MAPS = {
     RUNNING: ['运行中', 'warning'], COMPLETED: ['已完成', 'success'], FAILED: ['失败', 'danger']
   },
   result: {
-    OK: ['正常', 'success'], PENDING_FACTOR: ['待核(缺因子)', 'warning']
+    OK: ['正常', 'success'], PENDING_FACTOR: ['待核(缺因子)', 'warning'],
+    PENDING_EVIDENCE: ['待证(数量未裁定)', 'danger']
   },
   report: {
     DRAFT: ['草稿', 'info'], PENDING_REVIEW: ['待复核', 'warning'],
@@ -73,7 +74,8 @@ export const STATUS_MAPS = {
     SUPERSEDED: ['被取代', 'info'], RESTATED: ['已重述', 'warning']
   },
   reconcile: {
-    OK: ['勾稽一致', 'success'], MISMATCH: ['勾稽差异', 'danger'], PENDING_FACTOR: ['含待核指标', 'warning']
+    OK: ['勾稽一致', 'success'], MISMATCH: ['勾稽差异', 'danger'], PENDING_FACTOR: ['含待核指标', 'warning'],
+    PENDING_EVIDENCE: ['含待证指标', 'warning']
   },
   trigger: {
     SOURCE_SUPPLEMENT: ['来源补录', 'primary'], SOURCE_REVISION: ['来源修订', 'primary'],
@@ -88,6 +90,23 @@ export const STATUS_MAPS = {
   },
   purpose: {
     OFFICIAL: ['正式', 'primary'], CANDIDATE: ['候选', 'info']
+  },
+  adjudication: {
+    PENDING: ['待裁定/待补', 'warning'], DECIDED: ['已裁定', 'success'], INVALID: ['已失效', 'info']
+  },
+  evidenceDoc: {
+    RECEIVED: ['生效', 'success'], SUPERSEDED: ['被新版本取代', 'info'], VOID: ['已作废', 'danger']
+  },
+  evidenceRole: {
+    ADOPTED: ['采用', 'success'], EXCLUDED: ['排除', 'danger'], SUPPORTING: ['支撑/参照', 'info']
+  },
+  conversion: {
+    OK: ['可换算', 'success'], UNCONVERTIBLE: ['无法换算', 'danger']
+  },
+  docType: {
+    INVOICE: ['发票', 'primary'], WEIGHNOTE: ['过磅单', 'primary'],
+    ENV_DECLARATION: ['供应商环境声明', 'warning'], DELIVERY_NOTE: ['送货单', 'info'],
+    RETURN_NOTE: ['退货单', 'warning'], PURCHASE_ORDER: ['采购订单', 'info']
   }
 }
 

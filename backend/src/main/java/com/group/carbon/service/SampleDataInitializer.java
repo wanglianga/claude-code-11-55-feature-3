@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,8 +24,10 @@ import java.util.List;
  * 工厂/产品线/用户、因子目录（含未批准版本以演示待核指标）、
  * 2025-05 已核验批次 → 正式运行 → 已发布报告；
  * 2025-06 批次（含未分摊行、缺因子行、集团采购批次）用于验收回放。
+ * 采购三证凭证与数量裁定由 EvidenceDataInitializer 在其后补录。
  */
 @Component
+@Order(10)
 public class SampleDataInitializer implements ApplicationRunner {
   private static final Logger log = LoggerFactory.getLogger(SampleDataInitializer.class);
 
@@ -37,11 +40,13 @@ public class SampleDataInitializer implements ApplicationRunner {
   private final RunService runService;
   private final FactorService factorService;
   private final DisclosureService disclosureService;
+  private final EvidenceDataInitializer evidenceDataInitializer;
 
   public SampleDataInitializer(UserRepo userRepo, PlantRepo plantRepo, ProductLineRepo lineRepo,
                                FactorRepo factorRepo, FactorVersionRepo versionRepo,
                                BatchService batchService, RunService runService,
-                               FactorService factorService, DisclosureService disclosureService) {
+                               FactorService factorService, DisclosureService disclosureService,
+                               EvidenceDataInitializer evidenceDataInitializer) {
     this.userRepo = userRepo;
     this.plantRepo = plantRepo;
     this.lineRepo = lineRepo;
@@ -51,6 +56,7 @@ public class SampleDataInitializer implements ApplicationRunner {
     this.runService = runService;
     this.factorService = factorService;
     this.disclosureService = disclosureService;
+    this.evidenceDataInitializer = evidenceDataInitializer;
   }
 
   @Override
@@ -104,6 +110,9 @@ public class SampleDataInitializer implements ApplicationRunner {
     verify(batch("B-2025-05-PROC-GP", sz, "PROCUREMENT", "2025-05", List.of(
         row(sz, l1, "PURCH_STEEL", "480", "V-9001"),
         row(cd, l1, "PURCH_STEEL", "260", "V-9002"))));
+
+    // ---------- 采购三证凭证与数量裁定（运行前完成，供运行冻结证据快照） ----------
+    evidenceDataInitializer.seedAll();
 
     // ---------- 2025-05 正式运行 → 冻结 → 审批 → 发布 ----------
     CalcRun mayRun = runService.createOfficialRun("2025-05", "analyst");

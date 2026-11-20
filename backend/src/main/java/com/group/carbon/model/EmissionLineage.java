@@ -13,14 +13,21 @@ public class EmissionLineage {
   private Long resultId;
   @Column(name = "source_row_id", nullable = false)
   private Long sourceRowId;
-  @Column(name = "qty_used", nullable = false)
+  @Column(name = "qty_used")
   private BigDecimal qtyUsed;
+  /** 采购行对应的数量裁定（燃料/电力行为空），用于血缘下钻证据链 */
+  @Column(name = "adjudication_id")
+  private Long adjudicationId;
 
   public EmissionLineage() {}
   public EmissionLineage(Long resultId, Long sourceRowId, BigDecimal qtyUsed) {
     this.resultId = resultId;
     this.sourceRowId = sourceRowId;
     this.qtyUsed = qtyUsed;
+  }
+  public EmissionLineage(Long resultId, Long sourceRowId, BigDecimal qtyUsed, Long adjudicationId) {
+    this(resultId, sourceRowId, qtyUsed);
+    this.adjudicationId = adjudicationId;
   }
 
   public Long getId() { return id; }
@@ -31,4 +38,6 @@ public class EmissionLineage {
   public void setSourceRowId(Long sourceRowId) { this.sourceRowId = sourceRowId; }
   public BigDecimal getQtyUsed() { return qtyUsed; }
   public void setQtyUsed(BigDecimal qtyUsed) { this.qtyUsed = qtyUsed; }
+  public Long getAdjudicationId() { return adjudicationId; }
+  public void setAdjudicationId(Long adjudicationId) { this.adjudicationId = adjudicationId; }
 }

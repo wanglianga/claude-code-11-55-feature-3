@@ -28,6 +28,11 @@
         <div class="value danger">{{ data.counts.reconcileFailedReports }} / {{ data.counts.pendingFactorResults }}</div>
         <div class="sub">勾稽不平或缺少适用因子</div>
       </el-card>
+      <el-card class="stat" shadow="never">
+        <div class="label">待裁定凭证 / 待证指标</div>
+        <div class="value warn">{{ data.counts.pendingAdjudications }} / {{ data.counts.pendingEvidenceResults }}</div>
+        <div class="sub">三证冲突或单位无法换算，活动量待补</div>
+      </el-card>
     </div>
 
     <div class="grid">

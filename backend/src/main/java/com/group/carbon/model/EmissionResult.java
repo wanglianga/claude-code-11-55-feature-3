@@ -19,7 +19,7 @@ public class EmissionResult {
   private String scope;
   @Column(name = "energy_type", nullable = false)
   private String energyType;
-  @Column(name = "activity_qty", nullable = false)
+  @Column(name = "activity_qty")
   private BigDecimal activityQty;
   @Column(nullable = false)
   private String unit;

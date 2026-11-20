@@ -147,10 +147,16 @@ public class DisclosureService {
       item.setScope(key.scope());
       item.setEnergyType(key.energyType());
       item.setActivityQty(e.getValue().stream()
-          .map(EmissionResult::getActivityQty).reduce(BigDecimal.ZERO, BigDecimal::add));
-      boolean pending = e.getValue().stream().anyMatch(r -> r.getStatus() == ResultStatus.PENDING_FACTOR);
-      item.setItemStatus(pending ? ResultStatus.PENDING_FACTOR : ResultStatus.OK);
-      item.setEmissionTco2e(pending ? null : e.getValue().stream()
+          .map(EmissionResult::getActivityQty).filter(Objects::nonNull)
+          .reduce(BigDecimal.ZERO, BigDecimal::add));
+      boolean pendingFactor = e.getValue().stream()
+          .anyMatch(r -> r.getStatus() == ResultStatus.PENDING_FACTOR);
+      boolean pendingEvidence = e.getValue().stream()
+          .anyMatch(r -> r.getStatus() == ResultStatus.PENDING_EVIDENCE);
+      ResultStatus itemStatus = pendingEvidence ? ResultStatus.PENDING_EVIDENCE
+          : (pendingFactor ? ResultStatus.PENDING_FACTOR : ResultStatus.OK);
+      item.setItemStatus(itemStatus);
+      item.setEmissionTco2e(itemStatus != ResultStatus.OK ? null : e.getValue().stream()
           .map(r -> r.getEmissionTco2e() == null ? BigDecimal.ZERO : r.getEmissionTco2e())
           .reduce(BigDecimal.ZERO, BigDecimal::add));
       items.add(itemRepo.save(item));
@@ -166,7 +172,11 @@ public class DisclosureService {
     version.setTotalTco2e(s1.add(s2).add(s3));
 
     // 3) 勾稽：工厂明细合计 vs 产品线合计
-    int pendingCount = (int) items.stream().filter(i -> i.getItemStatus() == ResultStatus.PENDING_FACTOR).count();
+    int pendingFactorCount = (int) items.stream()
+        .filter(i -> i.getItemStatus() == ResultStatus.PENDING_FACTOR).count();
+    int pendingEvidenceCount = (int) items.stream()
+        .filter(i -> i.getItemStatus() == ResultStatus.PENDING_EVIDENCE).count();
+    int pendingCount = pendingFactorCount + pendingEvidenceCount;
     version.setPendingCount(pendingCount);
     BigDecimal grandByPlant = items.stream()
         .map(i -> i.getEmissionTco2e() == null ? BigDecimal.ZERO : i.getEmissionTco2e())
@@ -193,14 +203,20 @@ public class DisclosureService {
       saveRecon(version.getId(), null, "未分摊到产品线的工厂级排放",
           unallocated, BigDecimal.ZERO, unallocated, "MISMATCH");
     }
-    if (pendingCount > 0) {
-      saveRecon(version.getId(), null, "缺少适用批准因子的待核指标（" + pendingCount + " 项）",
+    if (pendingEvidenceCount > 0) {
+      saveRecon(version.getId(), null,
+          "采购数量未裁定/待补的待证指标（" + pendingEvidenceCount + " 项，活动量留空，不得用金额或平均数填充）",
+          BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, "PENDING_EVIDENCE");
+    }
+    if (pendingFactorCount > 0) {
+      saveRecon(version.getId(), null, "缺少适用批准因子的待核指标（" + pendingFactorCount + " 项）",
           BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, "PENDING_FACTOR");
     }
 
     ReconcileStatus reconcile = unallocated.compareTo(BigDecimal.ZERO) != 0
         ? ReconcileStatus.MISMATCH
-        : (pendingCount > 0 ? ReconcileStatus.PENDING_FACTOR : ReconcileStatus.OK);
+        : (pendingEvidenceCount > 0 ? ReconcileStatus.PENDING_EVIDENCE
+            : (pendingFactorCount > 0 ? ReconcileStatus.PENDING_FACTOR : ReconcileStatus.OK));
     version.setReconcileStatus(reconcile);
     version.setReconcileDiff(unallocated);
     versionRepo.save(version);
@@ -288,11 +304,15 @@ public class DisclosureService {
         .findFirst().orElseThrow(() -> BizException.conflict("报告尚未冻结任何版本"));
   }
 
-  /** 待核/勾稽不平时禁止推进：差额不能为了按期提交而归零。 */
+  /** 待核/待证/勾稽不平时禁止推进：差额不能为了按期提交而归零，活动量不能用金额或平均数填。 */
   private void requireReconciled(ReportVersion version) {
     if (version.getReconcileStatus() == ReconcileStatus.MISMATCH) {
       throw BizException.conflict("产品线合计与工厂明细不勾稽（差异 "
           + version.getReconcileDiff().toPlainString() + " tCO2e），报告保持待核，不能推进审批/发布");
+    }
+    if (version.getReconcileStatus() == ReconcileStatus.PENDING_EVIDENCE) {
+      throw BizException.conflict("存在采购数量未裁定/待补的待证指标，活动量与证据链未冻结，"
+          + "报告保持待核，不能推进审批/发布");
     }
     if (version.getReconcileStatus() == ReconcileStatus.PENDING_FACTOR || version.getPendingCount() > 0) {
       throw BizException.conflict("存在 " + version.getPendingCount()

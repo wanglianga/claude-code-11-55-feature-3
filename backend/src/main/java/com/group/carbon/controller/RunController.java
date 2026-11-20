@@ -43,6 +43,7 @@ public class RunController {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("run", runService.getRun(id));
     out.put("bindings", runService.bindingsOf(id));
+    out.put("adjudicationBindings", runService.adjudicationBindingsOf(id));
     out.put("results", runService.resultsOf(id));
     return out;
   }

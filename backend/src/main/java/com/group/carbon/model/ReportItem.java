@@ -19,7 +19,7 @@ public class ReportItem {
   private String scope;
   @Column(name = "energy_type", nullable = false)
   private String energyType;
-  @Column(name = "activity_qty", nullable = false)
+  @Column(name = "activity_qty")
   private BigDecimal activityQty;
   @Column(name = "emission_tco2e")
   private BigDecimal emissionTco2e;
